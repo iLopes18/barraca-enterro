@@ -272,7 +272,7 @@ export default function App() {
               <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
               Líderes de Hoje
             </h3>
-            <Leaderboard topThree={topThreeToday} />
+            <Leaderboard topThree={topThreeToday} dayKey={getAcademicDayKey()} />
           </div>
         </div>
 
@@ -303,7 +303,7 @@ export default function App() {
                 VER TUDO
               </button>
             </h3>
-            <Leaderboard topThree={topThreeAllTime} />
+            <Leaderboard topThree={topThreeAllTime} dayKey="total" />
             <button 
               onClick={() => setIsRankingOpen(true)}
               className="w-full mt-6 py-2 border border-white/20 text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-brand-dark transition-all italic"
