@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == "iarafcplopes@gmail.com" && request.auth.token.email_verified == true)
+      ); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // Pillar 1: Admin protection
+    match /admins/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Pillar 2: Barracas Schema & Public Access
+    match /barracas/{barracaId} {
+      allow read: if true;
+      allow create: if true; // Allow seeding by anyone
+      allow update: if (
+        // Action: Vote
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['voteCount']) &&
+          request.resource.data.voteCount == resource.data.voteCount + 1
+        ) || 
+        // Action: Sync Metadata (Images/Course)
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasAny(['shotsUrls', 'giftsUrls', 'course']) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['voteCount', 'name', 'row', 'col'])
+        )
+      );
+    }
+
+    // Pillar 8: Votes Collection
+    match /votes/{voteId} {
+      allow get: if isAdmin(); 
+      allow create: if (
+        isValidId(voteId) &&
+        isValidVote(incoming()) &&
+        voteId.startsWith(incoming().deviceId)
+      );
+    }
+
+    function isValidVote(data) {
+      return data.deviceId is string && data.deviceId.size() <= 128 &&
+             data.barracaId is string && data.barracaId.size() <= 128 &&
+             data.timestamp == request.time;
+    }
+  }
+}

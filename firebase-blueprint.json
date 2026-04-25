@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "Barraca": {
+      "title": "Barraca",
+      "description": "Represents a student bar at the Enterro do Aveiro event.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "course": { "type": "string" },
+        "row": { "type": "number" },
+        "col": { "type": "number" },
+        "shots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "ingredients": { "type": "string" }
+            }
+          }
+        },
+        "gifts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "cost": { "type": "number" }
+            }
+          }
+        },
+        "visualUrl": { "type": "string", "format": "uri" },
+        "shotsUrls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "giftsUrls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "voteCount": { "type": "number", "description": "Aggregated vote count for leaderboard." }
+      },
+      "required": ["id", "name", "row", "col"]
+    },
+    "Vote": {
+      "title": "Vote",
+      "description": "Represents a single vote cast for a barraca.",
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string" },
+        "barracaId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["deviceId", "barracaId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/barracas/{barracaId}": {
+      "schema": "Barraca",
+      "description": "Collection of all barracas participating in the event."
+    },
+    "/votes/{voteId}": {
+      "schema": "Vote",
+      "description": "Log of votes to enforce the 24h rule and tally results."
+    }
+  }
+}

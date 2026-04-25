@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { 
+       // Only include if app needs admin. Based on App.tsx, it doesn't strictly need it for users, 
+       // but it's good for management. 
+       return isSignedIn() && (
+         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+         request.auth.token.email == "iarafcplopes@gmail.com"
+       );
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // --- Validation Blueprints ---
+    
+    function isValidBarraca(data) {
+      return data.keys().hasAll(['id', 'name', 'row', 'col']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.row is number && data.col is number &&
+             ( !('course' in data) || data.course is string ) &&
+             ( !('shotsUrls' in data) || data.shotsUrls is list ) &&
+             ( !('giftsUrls' in data) || data.giftsUrls is list ) &&
+             ( !('voteCount' in data) || data.voteCount is number );
+    }
+
+    function isValidVote(data) {
+      return data.keys().hasAll(['deviceId', 'barracaId', 'timestamp']) &&
+             data.deviceId is string && data.deviceId.size() <= 128 &&
+             data.barracaId is string && data.barracaId.size() <= 128 &&
+             data.timestamp == request.time;
+    }
+
+    // --- Collections ---
+
+    match /barracas/{barracaId} {
+      allow list: if true; // Public list
+      allow get: if isValidId(barracaId); // Public get
+      
+      // Auto-seeding allowance (can be restricted later if needed)
+      allow create: if isValidBarraca(incoming());
+      
+      allow update: if (isValidBarraca(incoming()) && (
+        // Action: Vote Increment
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['voteCount']) &&
+          incoming().voteCount == existing().voteCount + 1
+        ) ||
+        // Action: Metadata Sync
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['shotsUrls', 'giftsUrls', 'course'])
+        ) ||
+        // Admin override
+        isAdmin()
+      ));
+    }
+
+    match /votes/{voteId} {
+      allow get: if isAdmin() || (isSignedIn() && voteId.startsWith(request.auth.uid));
+      allow list: if isAdmin();
+      
+      allow create: if (
+        isValidId(voteId) &&
+        isValidVote(incoming()) &&
+        // Relational check: Enforce deviceId matching voteId start (App.tsx logic)
+        voteId.startsWith(incoming().deviceId) &&
+        // Relation: Ensure barraca exists
+        exists(/databases/$(database)/documents/barracas/$(incoming().barracaId))
+      );
+    }
+    
+    match /admins/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}
