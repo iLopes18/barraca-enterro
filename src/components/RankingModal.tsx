@@ -24,9 +24,15 @@ const ACADEMIC_DAYS = [
 export default function RankingModal({ isOpen, onClose, barracas }: RankingModalProps) {
   const [selectedDay, setSelectedDay] = useState('total');
 
+  // DEBUG: Apagar depois de funcionar
+  console.log(`Dia selecionado: ${selectedDay}`);
+  console.log(`Dados das Barracas:`, barracas);
+
   const getVoteCount = (barraca: Barraca) => {
-    if (selectedDay === 'total') return barraca.voteCount;
-    return barraca.dailyVotes?.[selectedDay] || 0;
+    if (selectedDay === 'total') return barraca.voteCount || 0;
+    
+    if (!barraca.dailyVotes) return 0;
+    return barraca.dailyVotes[selectedDay] || 0;
   };
 
   const sortedBarracas = [...barracas].sort((a, b) => getVoteCount(b) - getVoteCount(a));
