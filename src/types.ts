@@ -20,6 +20,7 @@ export interface Barraca {
   shotsUrls?: string[];
   giftsUrls?: string[];
   voteCount: number;
+  dailyVotes?: Record<string, number>;
 }
 
 export interface Vote {
