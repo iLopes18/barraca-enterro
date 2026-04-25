@@ -24,20 +24,6 @@ const ACADEMIC_DAYS = [
 export default function RankingModal({ isOpen, onClose, barracas }: RankingModalProps) {
   const [selectedDay, setSelectedDay] = useState('total');
 
-  const getAcademicDayKey = () => {
-    const now = new Date();
-    const resetTime = 22;
-    const currentHour = now.getHours();
-    let date = new Date(now);
-    if (currentHour < resetTime) {
-      date.setDate(date.getDate() - 1);
-    }
-    return `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`;
-  };
-
-  const currentDayKey = getAcademicDayKey();
-  const visibleDays = ACADEMIC_DAYS.filter(d => d.key === 'total' || d.key <= currentDayKey);
-
   const getVoteCount = (barraca: Barraca) => {
     if (selectedDay === 'total') return barraca.voteCount;
     return barraca.dailyVotes?.[selectedDay] || 0;
@@ -90,7 +76,7 @@ export default function RankingModal({ isOpen, onClose, barracas }: RankingModal
 
               {/* Day Filters */}
               <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar scrollbar-hide">
-                {visibleDays.map((day) => (
+                {ACADEMIC_DAYS.map((day) => (
                   <button
                     key={day.key}
                     onClick={() => setSelectedDay(day.key)}
