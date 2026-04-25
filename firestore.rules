@@ -30,6 +30,8 @@ service cloud.firestore {
              data.name is string && data.name.size() <= 128 &&
              data.row is number && data.col is number &&
              ( !('course' in data) || data.course is string ) &&
+             ( !('shots' in data) || data.shots is list ) &&
+             ( !('gifts' in data) || data.gifts is list ) &&
              ( !('shotsUrls' in data) || data.shotsUrls is list ) &&
              ( !('giftsUrls' in data) || data.giftsUrls is list ) &&
              ( !('voteCount' in data) || data.voteCount is number );
@@ -39,7 +41,7 @@ service cloud.firestore {
       return data.keys().hasAll(['deviceId', 'barracaId', 'timestamp']) &&
              data.deviceId is string && data.deviceId.size() <= 128 &&
              data.barracaId is string && data.barracaId.size() <= 128 &&
-             data.timestamp == request.time;
+             (data.timestamp == request.time || data.timestamp is timestamp);
     }
 
     // --- Collections ---
@@ -73,8 +75,8 @@ service cloud.firestore {
       allow create: if (
         isValidId(voteId) &&
         isValidVote(incoming()) &&
-        // Relational check: Enforce deviceId matching voteId start (App.tsx logic)
-        voteId.startsWith(incoming().deviceId) &&
+        // Relational check: Enforce deviceId matching voteId pattern (App.tsx logic: v_d-${deviceId}_${dayKey})
+        voteId.startsWith('v_d-' + incoming().deviceId) &&
         // Relation: Ensure barraca exists
         exists(/databases/$(database)/documents/barracas/$(incoming().barracaId))
       );
