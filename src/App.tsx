@@ -5,8 +5,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, TrendingUp, Check } from 'lucide-react';
-import { db, auth, handleFirestoreError } from './firebase';
+import { TrendingUp, Check } from 'lucide-react';
+import { db } from './firebase';
 import { 
   collection, 
   onSnapshot, 
@@ -16,10 +16,7 @@ import {
   serverTimestamp,
   query,
   runTransaction,
-  writeBatch,
-  getDocs
 } from 'firebase/firestore';
-import { signInWithGoogle } from './firebase';
 import { Barraca } from './types';
 import { INITIAL_BARRACAS } from './constants';
 import Map from './components/Map';
@@ -36,40 +33,6 @@ export default function App() {
   const [canVote, setCanVote] = useState(true);
   const [isVoteListOpen, setIsVoteListOpen] = useState(false);
   const [isRankingOpen, setIsRankingOpen] = useState(false);
-  const [user, setUser] = useState<any>(null);
-
-  // Auth
-  useEffect(() => {
-    return auth.onAuthStateChanged(setUser);
-  }, []);
-
-  const isAdmin = user?.email === 'iarafcplopes@gmail.com';
-
-  const handleRecalculate = async () => {
-    if (!isAdmin) return;
-    try {
-      setIsLoading(true);
-      console.log('Recalculating votes...');
-      const votesSnap = await getDocs(collection(db, 'votes'));
-      const counts: Record<string, number> = {};
-      votesSnap.docs.forEach(d => {
-        const bid = d.data().barracaId;
-        counts[bid] = (counts[bid] || 0) + 1;
-      });
-
-      const batch = writeBatch(db);
-      barracas.forEach(b => {
-        batch.update(doc(db, 'barracas', b.id), { voteCount: counts[b.id] || 0 });
-      });
-      await batch.commit();
-      alert('Votos recalculados com sucesso!');
-    } catch (error) {
-      console.error('Recalculate failed:', error);
-      alert('Erro ao recalcular. Verifica as permissões.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Load barracas from Firestore
   useEffect(() => {
@@ -85,9 +48,8 @@ export default function App() {
         
         try {
           const batchPromises = INITIAL_BARRACAS.map(b => {
-            // Use merge: true to avoid wiping out vote counts if some data exists
             const cleaned = JSON.parse(JSON.stringify(b));
-            return setDoc(doc(db, 'barracas', b.id), cleaned, { merge: true }).catch(e => handleFirestoreError(e, 'write', `barracas/${b.id}`));
+            return setDoc(doc(db, 'barracas', b.id), cleaned, { merge: true });
           });
           await Promise.all(batchPromises);
           console.log('Auto-seeding complete.');
@@ -121,7 +83,6 @@ export default function App() {
 
              const { shotsUrls, giftsUrls, course } = initial;
              
-             // Only update if there is actually a difference for THIS specific barraca
              const shouldUpdate = 
                JSON.stringify(shotsUrls || []) !== JSON.stringify(existing.shotsUrls || []) ||
                JSON.stringify(giftsUrls || []) !== JSON.stringify(existing.giftsUrls || []) ||
@@ -134,18 +95,17 @@ export default function App() {
                shotsUrls: shotsUrls || [], 
                giftsUrls: giftsUrls || [],
                course: course || ''
-             }, { merge: true }).catch(e => handleFirestoreError(e, 'update', `barracas/${initial.id}`));
+             }, { merge: true });
           });
-          Promise.all(syncPromises).then(() => {
-            console.log('Database sync complete');
-          }).catch(err => {
-            console.error('Database sync failed:', err);
-          });
+          Promise.all(syncPromises)
+            .then(() => console.log('Database sync complete'))
+            .catch(err => console.error('Database sync failed:', err));
         }
       }
       setIsLoading(false);
     }, (error) => {
-      handleFirestoreError(error, 'list', 'barracas');
+      console.error('Snapshot error:', error);
+      setIsLoading(false);
     });
 
     return () => {
@@ -166,8 +126,6 @@ export default function App() {
 
   const getAcademicDayKey = useCallback(() => {
     const now = new Date();
-    // Academic day resets at 22:00.
-    // If it's before 22h, it's still "yesterday's" academic session.
     const resetTime = 22;
     const currentHour = now.getHours();
     
@@ -237,9 +195,6 @@ export default function App() {
       setCanVote(false);
       alert('Voto registado com sucesso! 🎉');
     } catch (error: any) {
-      if (error?.message?.includes('permission-denied')) {
-        handleFirestoreError(error, 'write', `votes/${voteId} or barracas/${barracaId}`);
-      }
       console.error('Vote failed:', error);
       if (error instanceof Error && error.message === "Barraca not found") {
         alert('Erro: Esta barraca ainda não está registada no sistema. O administrador precisa de iniciar o recinto.');
@@ -248,6 +203,12 @@ export default function App() {
       }
     }
   };
+
+  // Keep selectedBarraca in sync with live Firestore data
+  const liveSelectedBarraca = useMemo(() => {
+    if (!selectedBarraca) return null;
+    return barracas.find(b => b.id === selectedBarraca.id) ?? selectedBarraca;
+  }, [barracas, selectedBarraca]);
 
   const topThree = useMemo(() => {
     return [...barracas].sort((a, b) => b.voteCount - a.voteCount).slice(0, 3);
@@ -357,32 +318,13 @@ export default function App() {
       {/* Footer Info */}
       <footer className="max-w-7xl mx-auto px-6 py-10 flex flex-col justify-center items-center gap-4 text-[10px] font-mono opacity-40 uppercase border-t border-white/10">
         <p>para mais informações contactar: faiscamcquack@gmail.com</p>
-        
-        <div className="flex gap-4">
-          {!user ? (
-            <button onClick={() => signInWithGoogle()} className="hover:text-blue-400 transition-colors">Admin Login</button>
-          ) : (
-            <div className="flex items-center gap-4">
-              <span>{user.email}</span>
-              {isAdmin && (
-                <button 
-                  onClick={handleRecalculate}
-                  className="bg-blue-500/20 text-blue-400 px-2 py-1 rounded border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-all"
-                >
-                  Recalcular Votos
-                </button>
-              )}
-              <button onClick={() => auth.signOut()} className="hover:text-red-400">Sair</button>
-            </div>
-          )}
-        </div>
       </footer>
 
       {/* Modals */}
       <AnimatePresence>
-        {selectedBarraca && (
+        {liveSelectedBarraca && (
           <BarracaModal 
-            barraca={selectedBarraca} 
+            barraca={liveSelectedBarraca} 
             onClose={() => setSelectedBarraca(null)}
             onVote={handleVote}
             canVote={canVote}
