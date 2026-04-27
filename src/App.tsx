@@ -16,6 +16,8 @@ import {
   serverTimestamp,
   query,
   runTransaction,
+  getDocs,
+  writeBatch
 } from 'firebase/firestore';
 import { Barraca } from './types';
 import { INITIAL_BARRACAS } from './constants';
@@ -33,6 +35,45 @@ export default function App() {
   const [canVote, setCanVote] = useState(true);
   const [isVoteListOpen, setIsVoteListOpen] = useState(false);
   const [isRankingOpen, setIsRankingOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleRecalculate = async () => {
+    const password = prompt("Introduz a palavra-passe para sincronizar todos os votos:");
+    if (password !== "2777") {
+      alert("Palavra-passe incorreta.");
+      return;
+    }
+
+    try {
+      setIsSyncing(true);
+      console.log("A iniciar sincronização total de votos...");
+      
+      const votesSnap = await getDocs(collection(db, 'votes'));
+      console.log(`Encontrados ${votesSnap.size} documentos de voto.`);
+      
+      const counts: Record<string, number> = {};
+      votesSnap.docs.forEach(d => {
+        const bid = d.data().barracaId;
+        if (bid) counts[bid] = (counts[bid] || 0) + 1;
+      });
+
+      const batch = writeBatch(db);
+      barracas.forEach(b => {
+        batch.update(doc(db, 'barracas', b.id), { 
+          voteCount: counts[b.id] || 0 
+        });
+      });
+
+      await batch.commit();
+      console.log("Sincronização concluída com sucesso.");
+      alert(`Sincronização concluída! ${votesSnap.size} votos processados.`);
+    } catch (error) {
+      console.error("Erro na sincronização:", error);
+      alert("Erro ao sincronizar. Verifica a consola para detalhes.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Load barracas from Firestore
   useEffect(() => {
@@ -81,34 +122,40 @@ export default function App() {
   const handleVote = async (barracaId: string) => {
     if (!canVote) return;
     
+    console.log("A iniciar processo de voto para barraca:", barracaId);
     const deviceId = getDeviceId();
     const voteId = `v_c-${deviceId}`;
+    console.log("ID do Voto (Dispositivo):", voteId);
     
     try {
       await runTransaction(db, async (transaction) => {
+        console.log("Transação em curso no Firestore...");
         const barracaRef = doc(db, 'barracas', barracaId);
         const voteRef = doc(db, 'votes', voteId);
         
         const barracaSnap = await transaction.get(barracaRef);
         if (!barracaSnap.exists()) throw new Error("Barraca not found");
         
+        console.log("A registar documento de voto...");
         transaction.set(voteRef, {
           deviceId,
           barracaId,
           timestamp: serverTimestamp()
         });
         
+        console.log("A incrementar contador da barraca...");
         transaction.update(barracaRef, {
           voteCount: increment(1)
         });
       });
       
+      console.log("Transação concluída com sucesso.");
       localStorage.setItem('bt_voted_cumulative', 'true');
       setCanVote(false);
       setVotingCooldown('VOTO CONCLUÍDO');
       alert('Voto registado com sucesso! 🎉');
     } catch (error: any) {
-      console.error('Vote failed:', error);
+      console.error("Erro detalhado na transação de voto:", error);
       if (error instanceof Error && error.message === "Barraca not found") {
         alert('Erro: Esta barraca ainda não está registada no sistema.');
       } else {
@@ -231,6 +278,13 @@ export default function App() {
       {/* Footer Info */}
       <footer className="max-w-7xl mx-auto px-6 py-10 flex flex-col justify-center items-center gap-4 text-[10px] font-mono opacity-40 uppercase border-t border-white/10">
         <p>para mais informações contactar: faiscamcquack@gmail.com</p>
+        <button 
+          onClick={handleRecalculate}
+          disabled={isSyncing}
+          className="mt-2 text-white/20 hover:text-white transition-colors disabled:opacity-50"
+        >
+          {isSyncing ? 'A SINCRONIZAR...' : 'Sincronizar Votos (Admin)'}
+        </button>
       </footer>
 
       {/* Modals */}
