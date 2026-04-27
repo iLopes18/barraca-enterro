@@ -39,68 +39,12 @@ export default function App() {
     let isSubscribed = true;
     
     const q = query(collection(db, 'barracas'));
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       if (!isSubscribed) return;
 
-      if (snapshot.empty) {
-        console.log('Database is empty. auto-seeding...');
-        setBarracas(INITIAL_BARRACAS);
-        
-        try {
-          const batchPromises = INITIAL_BARRACAS.map(b => {
-            const cleaned = JSON.parse(JSON.stringify(b));
-            return setDoc(doc(db, 'barracas', b.id), cleaned, { merge: true });
-          });
-          await Promise.all(batchPromises);
-          console.log('Auto-seeding complete.');
-        } catch (err) {
-          console.error('Auto-seeding failed:', err);
-        }
-      } else {
+      if (!snapshot.empty) {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Barraca));
         setBarracas(data);
-
-        // Check if we need to sync new images (metadata update)
-        const needsSync = INITIAL_BARRACAS.some(initial => {
-          const existing = data.find(d => d.id === initial.id);
-          if (!existing) return false;
-          
-          const initialShots = JSON.stringify(initial.shotsUrls || []);
-          const existingShots = JSON.stringify(existing.shotsUrls || []);
-          const initialGifts = JSON.stringify(initial.giftsUrls || []);
-          const existingGifts = JSON.stringify(existing.giftsUrls || []);
-          
-          return initialShots !== existingShots || 
-                 initialGifts !== existingGifts || 
-                 initial.course !== existing.course;
-        });
-
-        if (needsSync) {
-          console.log('New assets detected. Syncing database...');
-          const syncPromises = INITIAL_BARRACAS.map(async (initial) => {
-             const existing = data.find(d => d.id === initial.id);
-             if (!existing) return Promise.resolve();
-
-             const { shotsUrls, giftsUrls, course } = initial;
-             
-             const shouldUpdate = 
-               JSON.stringify(shotsUrls || []) !== JSON.stringify(existing.shotsUrls || []) ||
-               JSON.stringify(giftsUrls || []) !== JSON.stringify(existing.giftsUrls || []) ||
-               course !== existing.course;
-
-             if (!shouldUpdate) return Promise.resolve();
-
-             console.log(`Syncing metadata for: ${initial.name}`);
-             return setDoc(doc(db, 'barracas', initial.id), { 
-               shotsUrls: shotsUrls || [], 
-               giftsUrls: giftsUrls || [],
-               course: course || ''
-             }, { merge: true });
-          });
-          Promise.all(syncPromises)
-            .then(() => console.log('Database sync complete'))
-            .catch(err => console.error('Database sync failed:', err));
-        }
       }
       setIsLoading(false);
     }, (error) => {
@@ -124,53 +68,21 @@ export default function App() {
     return id;
   }, []);
 
-  const getAcademicDayKey = useCallback(() => {
-    const now = new Date();
-    const resetTime = 22;
-    const currentHour = now.getHours();
-    
-    let date = new Date(now);
-    if (currentHour < resetTime) {
-      date.setDate(date.getDate() - 1);
-    }
-    
-    return `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`;
+  const updateCooldown = useCallback(() => {
+    const voted = localStorage.getItem('bt_voted_cumulative');
+    setCanVote(!voted);
+    setVotingCooldown(voted ? 'VOTO CONCLUÍDO' : 'DISPONÍVEL');
   }, []);
 
-  const updateCooldown = useCallback(() => {
-    const now = new Date();
-    const nextReset = new Date();
-    nextReset.setHours(22, 0, 0, 0);
-    
-    if (now.getHours() >= 22) {
-      nextReset.setDate(nextReset.getDate() + 1);
-    }
-    
-    const diff = nextReset.getTime() - now.getTime();
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-    
-    setVotingCooldown(`${hours}h ${minutes}m ${seconds}s`);
-    
-    const dayKey = getAcademicDayKey();
-    const lastVoteKey = `last_vote_${dayKey}`;
-    const voted = localStorage.getItem(lastVoteKey);
-    setCanVote(!voted);
-  }, [getAcademicDayKey]);
-
   useEffect(() => {
-    const timer = setInterval(updateCooldown, 1000);
     updateCooldown();
-    return () => clearInterval(timer);
   }, [updateCooldown]);
 
   const handleVote = async (barracaId: string) => {
     if (!canVote) return;
     
     const deviceId = getDeviceId();
-    const dayKey = getAcademicDayKey();
-    const voteId = `v_d-${deviceId}_${dayKey}`;
+    const voteId = `v_c-${deviceId}`;
     
     try {
       await runTransaction(db, async (transaction) => {
@@ -191,15 +103,16 @@ export default function App() {
         });
       });
       
-      localStorage.setItem(`last_vote_${dayKey}`, 'true');
+      localStorage.setItem('bt_voted_cumulative', 'true');
       setCanVote(false);
+      setVotingCooldown('VOTO CONCLUÍDO');
       alert('Voto registado com sucesso! 🎉');
     } catch (error: any) {
       console.error('Vote failed:', error);
       if (error instanceof Error && error.message === "Barraca not found") {
-        alert('Erro: Esta barraca ainda não está registada no sistema. O administrador precisa de iniciar o recinto.');
+        alert('Erro: Esta barraca ainda não está registada no sistema.');
       } else {
-        alert('Erro ao votar. Talvez já tenhas votado hoje?');
+        alert('Erro ao votar. Só é permitido um voto por dispositivo.');
       }
     }
   };
@@ -242,11 +155,11 @@ export default function App() {
             <span className="text-[10px] font-mono text-white/30 uppercase">Firebase Database: Active</span>
           </div>
           <div className="bg-white text-brand-dark px-4 py-2 font-mono font-bold text-xl md:text-2xl flex items-center gap-3">
-            <span className="text-[10px] uppercase tracking-widest opacity-70">Próximo Voto:</span>
+            <span className="text-[10px] uppercase tracking-widest opacity-70">Estado:</span>
             {votingCooldown}
           </div>
           <p className="text-[10px] uppercase tracking-tighter opacity-50">
-            1 voto por dispositivo a cada 24h académicas
+            A participação no referendo é limitada a 1 voto por dispositivo
           </p>
         </div>
       </header>
@@ -271,7 +184,7 @@ export default function App() {
         <section className="md:col-span-4 flex flex-col gap-6">
           <div className="bg-white/5 border-l-4 border-white p-4">
             <h3 className="text-xs font-black uppercase tracking-widest mb-6 border-b border-white/10 pb-2 flex justify-between items-center">
-              Líderes de Hoje
+              Líderes do Referendo
               <button 
                 onClick={() => setIsRankingOpen(true)}
                 className="text-[9px] text-blue-400 hover:text-white transition-colors underline underline-offset-4"
@@ -309,7 +222,7 @@ export default function App() {
             <p className="text-center font-mono text-[9px] opacity-30 tracking-[0.2em] uppercase">
               {canVote 
                 ? 'Referendo Aberto // Seleciona a tua barraca favorita' 
-                : 'Próxima votação disponível às 22h'}
+                : 'Voto Contabilizado'}
             </p>
           </div>
         </section>
